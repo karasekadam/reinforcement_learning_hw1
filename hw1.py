@@ -18,26 +18,28 @@ import pandas as pd
     allow you to use the provided visualization utilities.
 """
 
+
 class Policy:
     def __init__(self, **kwargs):
         raise NotImplementedError()
 
     # Should sample an action from the policy in the given state
-    def play(self, state : int, greedy=False) -> int:
+    def play(self, state: int, greedy=False) -> int:
         raise NotImplementedError()
 
     # Raw output of the policy, this could later be logits/etc.
     # However, for this homework the output of raw(state) MUST be
     # the estimated value of the given state under the policy
-    def raw(self, state : int) -> float:
+    def raw(self, state: int) -> float:
         raise NotImplementedError()
-
 
 
 """
     These are the policy objects you will work with.
     Check the return types of each `train()` method.
 """
+
+
 class ValuePolicy(Policy):
     def __init__(self, values, decisions):
         self.values = values
@@ -61,7 +63,6 @@ class GreedyPolicy(Policy):
         return np.max(self.q_table[state])
 
 
-
 class EpsGreedyPolicy(Policy):
     def __init__(self, q_table, eps):
         self.q_table = q_table
@@ -80,17 +81,19 @@ class EpsGreedyPolicy(Policy):
 
 class Trainer:
     # Stores the EnvWrapper object
-    def __init__(self, env : EnvWrapper, **kwargs):
+    def __init__(self, env: EnvWrapper, **kwargs):
         self.env = env
 
     # `gamma` is the discount factor
     # `steps` is the number of iterations for VI, or total number of calls to env.step() for QL, SARSA, and MC
-    def train(self, gamma : float, steps : int, **kwargs) -> Policy:
+    def train(self, gamma: float, steps: int, **kwargs) -> Policy:
         raise NotImplementedError()
+
 
 """
     VALUE ITERATION
 """
+
 
 class VITrainer(Trainer):
 
@@ -105,18 +108,51 @@ class VITrainer(Trainer):
         # The states are numbers \in [0, ... nS-1], same with actions.
         nS = self.env.num_states()
         nA = self.env.num_actions()
-        values = ...
+        values = [0 for _ in range(nS)]
+
+        for _ in range(steps):
+            new_values = [0 for _ in range(nS)]
+            for state in range(nS):
+                max_value = -np.inf
+                for action in range(nA):
+                    value = 0
+                    for next_state in range(nS):
+                        next_state_probability = self.env.get_transition(state, action, next_state)
+                        reward = self.env.get_reward(state, action, next_state)
+                        value += (next_state_probability * (reward + gamma * values[next_state]))
+                    max_value = max(max_value, value)
+                new_values[state] = max_value
+            values = new_values
 
         # recall that environment dynamics are available as full tensors:
         # w. `self.env.get_dynamics_tensor()`, or via `get_transition(s, a, s')`
 
         # Make sure you return an object extending the Policy interface, so
         # that you are able to render the policy and we can evaluate it.
-        pass
+
+        policy_decision = [0 for _ in range(nS)]
+        for state in range(nS):
+            max_value = -np.inf
+            best_choice = None
+            for action in range(nA):
+                value = 0
+                for next_state in range(nS):
+                    next_state_probability = self.env.get_transition(state, action, next_state)
+                    reward = self.env.get_reward(state, action, next_state)
+                    value += (next_state_probability * (reward + gamma * values[next_state]))
+                if value > max_value:
+                    max_value = value
+                    best_choice = action
+            policy_decision[state] = best_choice
+
+        policy = ValuePolicy(values, policy_decision)
+        return policy
+
 
 """
     Q-LEARNING
 """
+
 
 class QLTrainer(Trainer):
 
@@ -133,7 +169,7 @@ class QLTrainer(Trainer):
         # TODO: modify this call for exploring starts as well
         state, info = self.env.reset()
         done = False
-        
+
         while not done and step < steps:
             # TODO: action selection
             action = np.random.randint(4)
@@ -145,12 +181,11 @@ class QLTrainer(Trainer):
             # TODO: update values
             if terminated or truncated:
                 done = True
-            
+
             # TODO: Report data through the provided logger
             if logger is not None:
                 # TODO: Evaluate policy, average per episode reward, etc.
-                    logger.write({"rew": rew, "termination": terminated}, step)
-
+                logger.write({"rew": rew, "termination": terminated}, step)
 
         # TODO: remember to only perform `steps` samples from the training environment
 
@@ -158,6 +193,7 @@ class QLTrainer(Trainer):
 """
     SARSA
 """
+
 
 class SARSATrainer(Trainer):
 
@@ -174,6 +210,7 @@ class SARSATrainer(Trainer):
     EVERY VISIT MONTE CARLO CONTROL
 """
 
+
 class MCTrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(MCTrainer, self).__init__(env)
@@ -183,9 +220,10 @@ class MCTrainer(Trainer):
         # exploration policy
         pass
 
+
 """
     Evaluation
-        
+
     As part of the exercise sheet, you are expected to deliver visualizations
     of the learning curves of each algorithm on each environment.
 
@@ -195,16 +233,17 @@ class MCTrainer(Trainer):
     which is called in the main function.
 """
 
-
-
 """
     We will demonstrate the rendering methods implemented
     in the wrapper using a dummy policy.
 """
+
+
 class RandomPolicy(Policy):
     """
         A dummy policy that returns random actions and random values
     """
+
     def __init__(self, nA):
         self.nA = nA
 
@@ -241,9 +280,7 @@ if __name__ == "__main__":
         setting `max_samples=n` in the Wrapper constructor; see below:
 
     """
-    LimitedEnv = EnvWrapper(gym.make('CliffWalking-v0'), max_samples = 10)
-
-
+    LimitedEnv = EnvWrapper(gym.make('CliffWalking-v0'), max_samples=10)
 
     """
         Logging example - walk through the CliffWalking environment
@@ -253,19 +290,20 @@ if __name__ == "__main__":
     """
     log_dir = "results/test/"
     logger = Logger(log_dir)
+    VITrainer(CliffWalking).train(gamma=1.0, steps=42)
+    # df = pd.read_csv(log_dir + "logs.csv", sep=";")
+    # print(df.head(10))
     QLTrainer(CliffWalking).train(gamma=1.0, steps=42, eps=0.42, lr=0.42, logger=logger)
     df = pd.read_csv(log_dir + "logs.csv", sep=";")
     print(df.head(10))
-
-
 
     """ 
         You can also use the `render_mode="human"` argument for Gymnasium to
         see an animation of your agent's decisions.
     """
     AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', map_name='4x4'
-                                                     , render_mode='human'),
-                             max_samples = -1)
+                                      , render_mode='human'),
+                             max_samples=-1)
     AnimatedEnv.reset()
     # Walk around randomly for a bit
     for i in range(10):
@@ -273,18 +311,19 @@ if __name__ == "__main__":
         if done:
             AnimatedEnv.reset()
 
-
-
     """
         Rendering example - using env.render_policy() to get a value heatmap as
         well as the greedy actions w.r.t. the policy values.
     """
+
+
     def render_random(env):
         """
             Plots heatmap of the state values and arrows corresponding to actions on `env`
         """
         env.reset(randomize=False)
         policy = RandomPolicy(env.num_actions())
-        env.render_policy(policy, label= "RandomPolicy")
+        env.render_policy(policy, label="RandomPolicy")
+
 
     render_random(FrozenLake)
