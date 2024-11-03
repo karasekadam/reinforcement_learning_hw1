@@ -118,42 +118,51 @@ class VITrainer(Trainer):
     Q-LEARNING
 """
 
-class QLTrainer(Trainer):
+class QLTrainer(Trainer): 
 
     def __init__(self, env, **kwargs):
         super(QLTrainer, self).__init__(env)
-        # feel free to add stuff here as well
-
+        self.q_table = np.zeros((env.num_states(), env.num_actions()))
+    
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions()) # Exploration
+        
+        return np.argmax(self.q_table[state]) # Exploitation
+        
     def train(self, gamma, steps, eps, lr, explore_starts=False, logger=None, **kwargs) -> GreedyPolicy:
         # TODO - complete the QLearning algorithm that uses the supplied
         # values of eps/lr (for the whole training). Use an epsilon-greedy exploration policy.
 
         step = 0
+        # TODO: modify this call for exploring starts as well       
+        state, _ = self.env.reset(randomize=explore_starts)
+        done = False 
 
-        # TODO: modify this call for exploring starts as well
-        state, info = self.env.reset()
-        done = False
-        
-        while not done and step < steps:
+
+        while step < steps:
             # TODO: action selection
-            action = np.random.randint(4)
-
+            action = self._epsilon_greedy_action(state, eps)
             succ, rew, terminated, truncated, _ = self.env.step(action)
+            done = terminated or truncated
 
+
+            best_next_action = np.argmax(self.q_table[succ])
+            # Q(s,a) += alpha * [reward + discount * max(Q(s',a')) - Q(s,a)] 
+            self.q_table[state, action] += lr * (rew + gamma * self.q_table[succ, best_next_action] - self.q_table[state, action])
+
+
+            # if logger is not None:
+            #     logger.write({"step\t": step, "reward\t": rew,  "state\t": state, "action\t": action}, step)
+
+            state = succ
             step += 1
 
-            # TODO: update values
-            if terminated or truncated:
-                done = True
-            
-            # TODO: Report data through the provided logger
-            if logger is not None:
-                # TODO: Evaluate policy, average per episode reward, etc.
-                    logger.write({"rew": rew, "termination": terminated}, step)
+            if done:
+                state, _ = self.env.reset(randomize=explore_starts)
+                done = False
 
-
-        # TODO: remember to only perform `steps` samples from the training environment
-
+        return GreedyPolicy(self.q_table)
 
 """
     SARSA
@@ -163,11 +172,48 @@ class SARSATrainer(Trainer):
 
     def __init__(self, env, **kwargs):
         super(SARSATrainer, self).__init__(env)
-
+        self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
+    
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions()) # Exploration
+        
+        return np.argmax(self.q_table[state]) # Exploitation
+    
     def train(self, gamma, steps, eps, lr, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
         # TODO - complete the SARSA algorithm that uses the supplied values of
         # eps/lr and exploring starts.
-        pass
+
+        step = 0
+        done = False
+
+        state, _ = self.env.reset(randomize=explore_starts)
+        action = self._epsilon_greedy_action(state, eps)
+
+        while step < steps:
+            succ, rew, terminated, truncated, _ = self.env.step(action)
+            done = terminated or truncated
+
+            next_action = self._epsilon_greedy_action(succ, eps) if not done else None
+
+            if not done:
+                q_next = self.q_table[succ, next_action]
+            else:
+                q_next = 0
+
+            # Q(s,a) += alpha * [reward + discount * Q(s',a') - Q(s,a)] 
+            self.q_table[state, action] += lr * (rew + gamma * q_next - self.q_table[state, action])
+
+            state, action = succ, next_action
+            step += 1
+            
+            if done:
+                state, _ = self.env.reset(randomize=explore_starts)
+                action = self._epsilon_greedy_action(state, eps)
+                done = False
+
+        return EpsGreedyPolicy(self.q_table, eps)
+    
 
 
 """
@@ -253,9 +299,10 @@ if __name__ == "__main__":
     """
     log_dir = "results/test/"
     logger = Logger(log_dir)
-    QLTrainer(CliffWalking).train(gamma=1.0, steps=42, eps=0.42, lr=0.42, logger=logger)
-    df = pd.read_csv(log_dir + "logs.csv", sep=";")
-    print(df.head(10))
+    ql_trainer = SARSATrainer(FrozenLake)
+    ql_policy = ql_trainer.train(gamma=0.99, steps=100000, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
+    # df = pd.read_csv(log_dir + "logs.csv", sep=";")
+    # print(df.head(10))
 
 
 
@@ -263,15 +310,26 @@ if __name__ == "__main__":
         You can also use the `render_mode="human"` argument for Gymnasium to
         see an animation of your agent's decisions.
     """
-    AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', map_name='4x4'
-                                                     , render_mode='human'),
+    AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', 
+                                      map_name='4x4', 
+                                      render_mode='human'),
                              max_samples = -1)
-    AnimatedEnv.reset()
-    # Walk around randomly for a bit
-    for i in range(10):
-        obs, rew, done, trunc, _ = AnimatedEnv.step(np.random.randint(4))
+    # # Walk according to learned policy
+    done = False
+    obs, _ = AnimatedEnv.reset()
+    while not done:
+        action = np.argmax(ql_trainer.q_table[obs])
+        obs, rew, done, trunc, _ = AnimatedEnv.step(action)
         if done:
             AnimatedEnv.reset()
+
+    # AnimatedEnv.reset()
+    # # Walk around randomly for a bit
+    # for i in range(10):
+    #     action = 0
+    #     obs, rew, done, trunc, _ = AnimatedEnv.step(action)
+    #     if done:
+    #         AnimatedEnv.reset()
 
 
 
@@ -287,4 +345,8 @@ if __name__ == "__main__":
         policy = RandomPolicy(env.num_actions())
         env.render_policy(policy, label= "RandomPolicy")
 
-    render_random(FrozenLake)
+    def render_given(env, policy):
+        env.render_policy(policy, label= "Q-Learning")
+
+    # render_random(FrozenLake)
+    render_given(FrozenLake, ql_policy)
