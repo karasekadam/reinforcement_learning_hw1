@@ -17,19 +17,20 @@ data_by_epoch_QL = defaultdict(list)
 data_by_epoch_SARSA = defaultdict(list)
 data_by_epoch_EVMC = defaultdict(list)
 
-steps = 100000
-options = ["FrozenLake-v1", "LargeLake", "CliffWalking-v0"]
+steps = 51000
+options = ["FrozenLake-v1", "LargeLake-v1", "CliffWalking-v0"]
 trainer = options[0]
 
 
-# value_type = "avg_reward"
-value_type = "initial_values"
-alpha = 0.2
+value_type = "avg_reward"
+# value_type = "init_state"
+alpha = 0.1
 epsilon = 0.1
 gamma = 0.99
+path= "test_new"
 
 # Read the CSV file line by line
-with open(f"./results/test/{trainer}/QL_{value_type}_{steps//1000}k.csv", 'r') as file:
+with open(f".\\results\\{path}\\{trainer}\\QL_{value_type}_{steps//1000}k.csv", 'r') as file:
     minimal = math.inf
     for line in file:
         # Split line into values and convert to float
@@ -42,7 +43,7 @@ with open(f"./results/test/{trainer}/QL_{value_type}_{steps//1000}k.csv", 'r') a
     data_by_epoch_QL = {key: values for key, values in data_by_epoch_QL.items() if key < minimal}
 
 
-with open(f"./results/test/{trainer}/SARSA_{value_type}_{steps//1000}k.csv", 'r') as file:
+with open(f".\\results\\{path}\\{trainer}\\SARSA_{value_type}_{steps//1000}k.csv", 'r') as file:
     minimal = math.inf
     for line in file:
         # Split line into values and convert to float
@@ -54,7 +55,7 @@ with open(f"./results/test/{trainer}/SARSA_{value_type}_{steps//1000}k.csv", 'r'
     print(minimal)
     data_by_epoch_SARSA = {key: values for key, values in data_by_epoch_SARSA.items() if key < minimal}
 
-with open(f"./results/test/{trainer}/MC_{value_type}_{steps//1000}k.csv", 'r') as file:
+with open(f".\\results\\{path}\\{trainer}\\MC_{value_type}_{steps//1000}k.csv", 'r') as file:
     minimal = math.inf
     for line in file:
         # Split line into values and convert to float
@@ -91,22 +92,22 @@ std_EVMC = []
 for epoch in epochs:
     values_at_index = data_by_epoch_QL[epoch]
     medians.append(np.average(values_at_index))
-    # q1_values.append(np.percentile(values_at_index, 25))
-    # q3_values.append(np.percentile(values_at_index, 75))
+    q1_values.append(np.percentile(values_at_index, 25))
+    q3_values.append(np.percentile(values_at_index, 75))
     std.append(np.std(values_at_index))
 
 for epoch in epochs_SARSA:
     values_at_index = data_by_epoch_SARSA[epoch]
     medians_SARSA.append(np.average(values_at_index))
-    # q1_values_SARSA.append(np.percentile(values_at_index, 25))
-    # q3_values_SARSA.append(np.percentile(values_at_index, 75))
+    q1_values_SARSA.append(np.percentile(values_at_index, 25))
+    q3_values_SARSA.append(np.percentile(values_at_index, 75))
     std_SARSA.append(np.std(values_at_index))
 
 for epoch in epochs_EVMC:
     values_at_index = data_by_epoch_EVMC[epoch]
     medians_EVMC.append(np.average(values_at_index))
-    # q1_values_EVMC.append(np.percentile(values_at_index, 25))
-    # q3_values_EVMC.append(np.percentile(values_at_index, 75))
+    q1_values_EVMC.append(np.percentile(values_at_index, 25))
+    q3_values_EVMC.append(np.percentile(values_at_index, 75))
     std_EVMC.append(np.std(values_at_index))
 
 # Step 3: Plot the Median with IQR (Q1-Q3) as a shaded area
@@ -137,7 +138,7 @@ plt.grid()
 plt.xlabel("Epochs")
 plt.ylabel("Initial state value")
 # This need to be reworked, right now it is manual
-# plt.title(f"{trainer}\nValue estimate Q(s0) of the initial state\nalpha={alpha} epsilon={epsilon} gamma={gamma} steps={steps}")
-plt.title(f"{trainer}\nInitial state value\nalpha={alpha} epsilon={epsilon} gamma={gamma} steps={steps}")
+plt.title(f"{trainer}\nValue estimate Q(s0) of the initial state\nalpha={alpha} epsilon={epsilon} gamma={gamma} steps={steps}")
+# plt.title(f"{trainer}\nAverage accumulated reward\nalpha={alpha} epsilon={epsilon} gamma={gamma} steps={steps}")
 plt.legend()
 plt.show()
