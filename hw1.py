@@ -218,6 +218,8 @@ class MCTrainer(Trainer):
         super(MCTrainer, self).__init__(env)
         self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
         self.visit_counts = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
 
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -229,9 +231,13 @@ class MCTrainer(Trainer):
         episode_num = 0
 
         state, info = self.env.reset(randomize=explore_starts)
-        done = False
-
+        episode_rewards = []
         episode = []
+
+        episodes = 0
+        total_reward = 0
+        v_pi_t_s0 = 0
+        rewards_per_episode = []
 
         while step < steps:
             action = self._epsilon_greedy_action(state, eps)
@@ -239,6 +245,7 @@ class MCTrainer(Trainer):
             done = terminated or truncated
 
             episode.append((state, action, rew))
+            total_reward += rew
             state = succ
             step += 1
 
@@ -256,11 +263,18 @@ class MCTrainer(Trainer):
                     self.visit_counts[state, action] += 1
                     self.q_table[state, action] += (G - self.q_table[state, action]) / self.visit_counts[state, action]
 
+                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
+                # https://groww.in/p/exponential-moving-average
+                discounted_return = total_reward * gamma
+                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+
+                episode_rewards.append(G)
                 episode = []
                 episode_num += 1
                 state, info = self.env.reset(randomize=explore_starts)
 
-
+        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
 
 """
@@ -346,10 +360,10 @@ if __name__ == "__main__":
         You can also use the `render_mode="human"` argument for Gymnasium to
         see an animation of your agent's decisions.
     """
-    AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', map_name='4x4'
-                                      , render_mode='human'),
-                             max_samples=-1)
-    AnimatedEnv.reset()
+    #AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', map_name='4x4'
+    #                                  , render_mode='human'),
+    #                         max_samples=-1)
+    # AnimatedEnv.reset()
     # Walk around randomly for a bit
     moves = [0, 1, 2, 3]
     # for i in moves:
@@ -370,12 +384,7 @@ if __name__ == "__main__":
         """
         env.reset(randomize=False)
         mc_trainer = MCTrainer(env)
-        # vit_trainer = VITrainer(env)
-        # policy1 = vit_trainer.train(gamma=0.99, steps=10000)
-        # env.render_policy(policy1, label="vit")
-
-        policy2 = mc_trainer.train(gamma=0.99, steps=1000, eps=0.2, explore_starts=True)
+        policy2 = mc_trainer.train(gamma=0.99, steps=100000, eps=0.1, explore_starts=False)
         env.render_policy(policy2, label="monte_carlo")
-        pass
 
     render_random(FrozenLake)
