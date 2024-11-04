@@ -303,6 +303,7 @@ class SARSATrainer(Trainer):
         state, _ = self.env.reset(randomize=explore_starts)
         action = self._epsilon_greedy_action(state, eps)
 
+
 class MCTrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(MCTrainer, self).__init__(env)
@@ -364,16 +365,6 @@ class MCTrainer(Trainer):
         return EpsGreedyPolicy(self.q_table, eps)
 
 
-                state, _ = self.env.reset(randomize=explore_starts)
-                action = self._epsilon_greedy_action(state, eps)
-                done = False
-
-                rewards_per_episode.append(total_reward)
-                total_reward = 0
-                episodes += 1
-
-        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
-        return EpsGreedyPolicy(self.q_table, eps)
 """
     Evaluation
 
@@ -540,8 +531,8 @@ if __name__ == "__main__":
             append_array_to_csv(sarsa_initial_values, f"./results/test/{trainer.name}/SARSA_initial_values_{steps // 1000}k.csv")
             # append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
 
-    LargeLake.name = "Fro"
-    initial_value_state_experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
+    LargeLake.name = "Large Lake"
+    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
     # vit_trainer = VITrainer(LargeLake)
     # vit_trainer.train(gamma=0.99, steps=500)
     # append_array_to_csv(vit_trainer.initial_state_values, f"./results/test/{LargeLake.name}/VIT_initial_values_500.csv")
