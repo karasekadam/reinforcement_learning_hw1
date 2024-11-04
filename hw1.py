@@ -7,6 +7,8 @@ from datetime import datetime
 import gymnasium as gym
 import numpy as np
 import pandas as pd
+import csv
+import os
 
 """
     The following classes define the interface we use to implement and evaluate
@@ -102,6 +104,7 @@ class VITrainer(Trainer):
     def __init__(self, env, **kwargs):
         # `env` is saved as `self.env`
         super(VITrainer, self).__init__(env)
+        self.initial_state_values = np.array([])
 
     def train(self, gamma, steps, **kwargs) -> ValuePolicy:
         # TODO - complete the Value Iteration Algorithm, 
@@ -124,7 +127,9 @@ class VITrainer(Trainer):
                         value += (next_state_probability * (reward + gamma * values[next_state]))
                     max_value = max(max_value, value)
                 new_values[state] = max_value
+
             values = new_values
+            self.initial_state_values = np.append(self.initial_state_values, values[0])
 
         # recall that environment dynamics are available as full tensors:
         # w. `self.env.get_dynamics_tensor()`, or via `get_transition(s, a, s')`
@@ -160,36 +165,63 @@ class QLTrainer(Trainer):
 
     def __init__(self, env, **kwargs):
         super(QLTrainer, self).__init__(env)
-        # feel free to add stuff here as well
+        self.q_table = np.zeros((env.num_states(), env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
+
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions())  # Exploration
+
+        return np.argmax(self.q_table[state])  # Exploitation
 
     def train(self, gamma, steps, eps, lr, explore_starts=False, logger=None, **kwargs) -> GreedyPolicy:
         # TODO - complete the QLearning algorithm that uses the supplied
         # values of eps/lr (for the whole training). Use an epsilon-greedy exploration policy.
 
         step = 0
-
         # TODO: modify this call for exploring starts as well
-        state, info = self.env.reset()
+        state, _ = self.env.reset(randomize=explore_starts)
         done = False
 
-        while not done and step < steps:
+        episodes = 0
+        total_reward = 0
+        v_pi_t_s0 = 0
+        rewards_per_episode = []
+
+        while step < steps:
             # TODO: action selection
-            action = np.random.randint(4)
-
+            action = self._epsilon_greedy_action(state, eps)
             succ, rew, terminated, truncated, _ = self.env.step(action)
+            total_reward += rew
+            done = terminated or truncated
 
+            best_next_action = np.argmax(self.q_table[succ])
+            # Q(s,a) += alpha * [reward + discount * max(Q(s',a')) - Q(s,a)]
+            self.q_table[state, action] += lr * (
+                        rew + gamma * self.q_table[succ, best_next_action] - self.q_table[state, action])
+
+            # if logger is not None:
+            #     logger.write({"step\t": step, "reward\t": rew,  "state\t": state, "action\t": action}, step)
+
+            state = succ
             step += 1
 
-            # TODO: update values
-            if terminated or truncated:
-                done = True
+            if done:
+                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
+                # https://groww.in/p/exponential-moving-average
+                discounted_return = total_reward * gamma
+                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
 
-            # TODO: Report data through the provided logger
-            if logger is not None:
-                # TODO: Evaluate policy, average per episode reward, etc.
-                logger.write({"rew": rew, "termination": terminated}, step)
+                state, _ = self.env.reset(randomize=explore_starts)
+                done = False
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                episodes += 1
 
-        # TODO: remember to only perform `steps` samples from the training environment
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
+        return GreedyPolicy(self.q_table)
 
 
 """
@@ -201,11 +233,64 @@ class SARSATrainer(Trainer):
 
     def __init__(self, env, **kwargs):
         super(SARSATrainer, self).__init__(env)
+        self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
+
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions())  # Exploration
+
+        return np.argmax(self.q_table[state])  # Exploitation
 
     def train(self, gamma, steps, eps, lr, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
         # TODO - complete the SARSA algorithm that uses the supplied values of
         # eps/lr and exploring starts.
-        pass
+
+        step = 0
+        done = False
+
+        state, _ = self.env.reset(randomize=explore_starts)
+        action = self._epsilon_greedy_action(state, eps)
+
+        episodes = 0
+        total_reward = 0
+        v_pi_t_s0 = 0
+        rewards_per_episode = []
+
+        while step < steps:
+            succ, rew, terminated, truncated, _ = self.env.step(action)
+            total_reward += rew
+            done = terminated or truncated
+
+            next_action = self._epsilon_greedy_action(succ, eps) if not done else None
+
+            if not done:
+                q_next = self.q_table[succ, next_action]
+            else:
+                q_next = 0
+
+            # Q(s,a) += alpha * [reward + discount * Q(s',a') - Q(s,a)]
+            self.q_table[state, action] += lr * (rew + gamma * q_next - self.q_table[state, action])
+
+            state, action = succ, next_action
+            step += 1
+
+            if done:
+                discounted_return = total_reward * gamma
+                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+
+                state, _ = self.env.reset(randomize=explore_starts)
+                action = self._epsilon_greedy_action(state, eps)
+                done = False
+
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                episodes += 1
+
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
+        return EpsGreedyPolicy(self.q_table, eps)
 
 
 """
@@ -231,15 +316,14 @@ class MCTrainer(Trainer):
         episode_num = 0
 
         state, info = self.env.reset(randomize=explore_starts)
-        episode_rewards = []
         episode = []
 
-        episodes = 0
         total_reward = 0
-        v_pi_t_s0 = 0
         rewards_per_episode = []
 
         while step < steps:
+            if step % 10000 == 0:
+                print(f"Step: {step}")
             action = self._epsilon_greedy_action(state, eps)
             succ, rew, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
@@ -249,8 +333,8 @@ class MCTrainer(Trainer):
             state = succ
             step += 1
 
-            if logger is not None:
-                logger.write({"rew": rew, "termination": terminated}, step)
+            # if logger is not None:
+            #     logger.write({"rew": rew, "termination": terminated}, step)
 
             if done:
                 # Calculate returns and update Q-values for every visit
@@ -263,18 +347,15 @@ class MCTrainer(Trainer):
                     self.visit_counts[state, action] += 1
                     self.q_table[state, action] += (G - self.q_table[state, action]) / self.visit_counts[state, action]
 
-                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
-                # https://groww.in/p/exponential-moving-average
-                discounted_return = total_reward * gamma
-                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
 
-                episode_rewards.append(G)
                 episode = []
                 episode_num += 1
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
                 state, info = self.env.reset(randomize=explore_starts)
 
-        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episode_num) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
 
 """
@@ -384,7 +465,49 @@ if __name__ == "__main__":
         """
         env.reset(randomize=False)
         mc_trainer = MCTrainer(env)
-        policy2 = mc_trainer.train(gamma=0.99, steps=100000, eps=0.1, explore_starts=False)
+        policy2 = mc_trainer.train(gamma=0.99, steps=10000, eps=0.1, explore_starts=True)
         env.render_policy(policy2, label="monte_carlo")
 
-    render_random(FrozenLake)
+    # render_random(FrozenLake)
+
+    def append_array_to_csv(array, filename, delimiter=";"):
+        # Open the file in append mode
+        with open(filename, mode="a", newline="") as file:
+            writer = csv.writer(file, delimiter=delimiter)
+            # Write the array as a row in the CSV file
+            writer.writerow(array)
+
+
+    def experiment(trainer, steps, gamma, eps, lr, explore_starts, logger):
+        mc_trainer = MCTrainer(trainer)
+        mc_trainer.train(gamma=gamma, steps=steps, eps=eps, logger=logger, explore_starts=explore_starts)
+        ql_trainer = QLTrainer(trainer)
+        ql_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, logger=logger, explore_starts=explore_starts)
+        sarsa_trainer = SARSATrainer(trainer)
+        sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
+
+        return mc_trainer.average_rewards, ql_trainer.average_rewards, sarsa_trainer.average_rewards
+
+    def experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
+        if not os.path.exists(f"./results/test/{trainer.name}"):
+            os.makedirs(f"./results/test/{trainer.name}")
+
+        for i in range(num_experiments):
+            mc_rewards, ql_rewards, sarsa_rewards = experiment(trainer, steps, gamma, eps, lr, explore_starts, logger)
+            append_array_to_csv(mc_rewards, f"./results/test/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards, f"./results/test/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards, f"./results/test/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
+
+
+    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, True, logger, 5)
+    """trainer = FrozenLake
+    stps = 100000
+    mc_trainer = MCTrainer(trainer)
+    mc_policy = mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, logger=logger, explore_starts=True)
+
+    for i in range(50):
+        append_array_to_csv(mc_trainer.average_rewards,
+                            f"./results/test/FrozenLake/MC_avg_reward_{stps // 1000}k.csv")
+        mc_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
+        mc_trainer.env.reset()
+        mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)"""
