@@ -16,7 +16,7 @@ data_by_epoch_QL = defaultdict(list)
 data_by_epoch_SARSA = defaultdict(list)
 
 steps = 100000
-trainer = "CliffWalking"
+trainer = "FrozenLake"
 
 # Read the CSV file line by line
 with open(f".\\results\\test\\{trainer}\\QL_avg_reward_{steps//1000}k.csv", 'r') as file:
@@ -27,7 +27,7 @@ with open(f".\\results\\test\\{trainer}\\QL_avg_reward_{steps//1000}k.csv", 'r')
         for i, value in enumerate(values):
             data_by_epoch_QL[i].append(value)
 
-with open(f".\\results\\test\\FrozenLake\\SARSA_avg_reward_{steps//1000}k.csv", 'r') as file:
+with open(f".\\results\\test\\{trainer}\\SARSA_avg_reward_{steps//1000}k.csv", 'r') as file:
     for line in file:
         # Split line into values and convert to float
         values = [float(x) for x in line.strip().split(';') if x]
@@ -41,25 +41,28 @@ epochs = sorted(data_by_epoch_QL.keys())
 medians = []
 q1_values = []
 q3_values = []
+std = []
 
 
 epochs_SARSA = sorted(data_by_epoch_SARSA.keys())
 medians_SARSA = []
 q1_values_SARSA = []
 q3_values_SARSA = []
+std_SARSA = []
 
 for epoch in epochs:
     values_at_index = data_by_epoch_QL[epoch]
     medians.append(np.median(values_at_index))
     q1_values.append(np.percentile(values_at_index, 25))
     q3_values.append(np.percentile(values_at_index, 75))
+    std.append(np.std(values_at_index))
 
 for epoch in epochs_SARSA:
     values_at_index = data_by_epoch_SARSA[epoch]
     medians_SARSA.append(np.median(values_at_index))
     q1_values_SARSA.append(np.percentile(values_at_index, 25))
     q3_values_SARSA.append(np.percentile(values_at_index, 75))
-
+    std_SARSA.append(np.std(values_at_index))
 
 # Step 3: Plot the Median with IQR (Q1-Q3) as a shaded area
 plt.figure(figsize=(10, 6))
@@ -68,9 +71,17 @@ plt.figure(figsize=(10, 6))
 plt.plot(epochs, medians, label="QL - Median", color="red", linewidth=2)
 plt.plot(epochs_SARSA, medians_SARSA, label="SARSA - Median", color="blue", linewidth=2)
 
-# Shaded area for IQR (Q1 to Q3)
-plt.fill_between(epochs, q1_values, q3_values, color="orange", alpha=0.4, label="QL - IQR (Q1 - Q3)")
-plt.fill_between(epochs_SARSA, q1_values_SARSA, q3_values_SARSA, color="lightblue", alpha=0.4, label="SQRSA - IQR (Q1 - Q3)")
+medians = np.array(medians)
+std = np.array(std)
+medians_SARSA = np.array(medians_SARSA)
+SARSA_std = np.array(std_SARSA)
+
+# Shaded area for IQR (Q1 to Q3) or STD
+plt.fill_between(epochs, (medians - std), (medians + std), color="orange", alpha=0.4, label="Std Dev")
+plt.fill_between(epochs_SARSA, medians_SARSA - SARSA_std, medians_SARSA + SARSA_std, color="lightblue", alpha=0.4, label="Std Dev")
+
+# plt.fill_between(epochs, q1_values, q3_values, color="orange", alpha=0.4, label="QL - IQR (Q1 - Q3)")
+# plt.fill_between(epochs_SARSA, q1_values_SARSA, q3_values_SARSA, color="lightblue", alpha=0.4, label="SARSA - IQR (Q1 - Q3)")
 
 # Customize the plot
 plt.grid()
