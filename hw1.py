@@ -210,9 +210,9 @@ class QLTrainer(Trainer):
             if done:
                 # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
                 # https://groww.in/p/exponential-moving-average
-                discounted_return = total_reward * gamma
-                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                # discounted_return = total_reward * gamma
+                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 done = False
@@ -277,9 +277,9 @@ class SARSATrainer(Trainer):
             step += 1
 
             if done:
-                discounted_return = total_reward * gamma
-                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                # discounted_return = total_reward * gamma
+                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 action = self._epsilon_greedy_action(state, eps)
@@ -309,6 +309,8 @@ class MCTrainer(Trainer):
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
             return np.random.choice(self.env.num_actions())  # Exploration
+        # if np.max(self.q_table[state]) == 0:
+        #     return np.random.choice(self.env.num_actions())
         return np.argmax(self.q_table[state])  # Exploitation
 
     def train(self, gamma, steps, eps, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
@@ -463,10 +465,11 @@ if __name__ == "__main__":
         """
         env.reset(randomize=False)
         mc_trainer = MCTrainer(env)
-        policy2 = mc_trainer.train(gamma=0.99, steps=10000, eps=0.1, explore_starts=True)
+        policy2 = mc_trainer.train(gamma=0.99, steps=1000000, eps=0.1, explore_starts=True)
+        print(len(mc_trainer.average_rewards))
         env.render_policy(policy2, label="monte_carlo")
 
-    # render_random(FrozenLake)
+    # render_random(CliffWalking)
 
     def append_array_to_csv(array, filename, delimiter=";"):
         # Open the file in append mode
@@ -504,10 +507,10 @@ if __name__ == "__main__":
         ql_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, logger=logger, explore_starts=explore_starts)
         sarsa_trainer = SARSATrainer(trainer)
         sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
-        vit_trainer = VITrainer(trainer)
-        vit_trainer.train(gamma=gamma, steps=steps)
+        # vit_trainer = VITrainer(trainer)
+        # vit_trainer.train(gamma=gamma, steps=steps)
 
-        return mc_trainer.initial_state_values, ql_trainer.initial_state_values, sarsa_trainer.initial_state_values, vit_trainer.initial_state_values
+        return mc_trainer.initial_state_values, ql_trainer.initial_state_values, sarsa_trainer.initial_state_values, 0#vit_trainer.initial_state_values
 
     def initial_value_state_experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
         if not os.path.exists(f"./results/test/{trainer.name}"):
@@ -519,18 +522,10 @@ if __name__ == "__main__":
             append_array_to_csv(mc_initial_values, f"./results/test/{trainer.name}/MC_initial_values_{steps // 1000}k.csv")
             append_array_to_csv(ql_initial_values, f"./results/test/{trainer.name}/QL_initial_values_{steps // 1000}k.csv")
             append_array_to_csv(sarsa_initial_values, f"./results/test/{trainer.name}/SARSA_initial_values_{steps // 1000}k.csv")
-            append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
+            # append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
 
-
-    initial_value_state_experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, True, logger, 5)
-    """trainer = FrozenLake
-    stps = 100000
-    mc_trainer = MCTrainer(trainer)
-    mc_policy = mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, logger=logger, explore_starts=True)
-
-    for i in range(50):
-        append_array_to_csv(mc_trainer.average_rewards,
-                            f"./results/test/FrozenLake/MC_avg_reward_{stps // 1000}k.csv")
-        mc_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
-        mc_trainer.env.reset()
-        mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)"""
+    LargeLake.name = "Fro"
+    initial_value_state_experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
+    # vit_trainer = VITrainer(LargeLake)
+    # vit_trainer.train(gamma=0.99, steps=500)
+    # append_array_to_csv(vit_trainer.initial_state_values, f"./results/test/{LargeLake.name}/VIT_initial_values_500.csv")
