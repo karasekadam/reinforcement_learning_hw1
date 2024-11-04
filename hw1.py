@@ -8,6 +8,8 @@ from datetime import datetime
 import gymnasium as gym
 import numpy as np
 import pandas as pd
+import csv
+import os
 
 """
     The following classes define the interface we use to implement and evaluate
@@ -21,26 +23,28 @@ import pandas as pd
     allow you to use the provided visualization utilities.
 """
 
+
 class Policy:
     def __init__(self, **kwargs):
         raise NotImplementedError()
 
     # Should sample an action from the policy in the given state
-    def play(self, state : int, greedy=False) -> int:
+    def play(self, state: int, greedy=False) -> int:
         raise NotImplementedError()
 
     # Raw output of the policy, this could later be logits/etc.
     # However, for this homework the output of raw(state) MUST be
     # the estimated value of the given state under the policy
-    def raw(self, state : int) -> float:
+    def raw(self, state: int) -> float:
         raise NotImplementedError()
-
 
 
 """
     These are the policy objects you will work with.
     Check the return types of each `train()` method.
 """
+
+
 class ValuePolicy(Policy):
     def __init__(self, values, decisions):
         self.values = values
@@ -64,7 +68,6 @@ class GreedyPolicy(Policy):
         return np.max(self.q_table[state])
 
 
-
 class EpsGreedyPolicy(Policy):
     def __init__(self, q_table, eps):
         self.q_table = q_table
@@ -83,23 +86,26 @@ class EpsGreedyPolicy(Policy):
 
 class Trainer:
     # Stores the EnvWrapper object
-    def __init__(self, env : EnvWrapper, **kwargs):
+    def __init__(self, env: EnvWrapper, **kwargs):
         self.env = env
 
     # `gamma` is the discount factor
     # `steps` is the number of iterations for VI, or total number of calls to env.step() for QL, SARSA, and MC
-    def train(self, gamma : float, steps : int, **kwargs) -> Policy:
+    def train(self, gamma: float, steps: int, **kwargs) -> Policy:
         raise NotImplementedError()
+
 
 """
     VALUE ITERATION
 """
+
 
 class VITrainer(Trainer):
 
     def __init__(self, env, **kwargs):
         # `env` is saved as `self.env`
         super(VITrainer, self).__init__(env)
+        self.initial_state_values = np.array([])
 
     def train(self, gamma, steps, **kwargs) -> ValuePolicy:
         # TODO - complete the Value Iteration Algorithm, 
@@ -108,14 +114,48 @@ class VITrainer(Trainer):
         # The states are numbers \in [0, ... nS-1], same with actions.
         nS = self.env.num_states()
         nA = self.env.num_actions()
-        values = ...
+        values = [0 for _ in range(nS)]
+
+        for _ in range(steps):
+            new_values = [0 for _ in range(nS)]
+            for state in range(nS):
+                max_value = -np.inf
+                for action in range(nA):
+                    value = 0
+                    for next_state in range(nS):
+                        next_state_probability = self.env.get_transition(state, action, next_state)
+                        reward = self.env.get_reward(state, action, next_state)
+                        value += (next_state_probability * (reward + gamma * values[next_state]))
+                    max_value = max(max_value, value)
+                new_values[state] = max_value
+
+            values = new_values
+            self.initial_state_values = np.append(self.initial_state_values, values[0])
 
         # recall that environment dynamics are available as full tensors:
         # w. `self.env.get_dynamics_tensor()`, or via `get_transition(s, a, s')`
 
         # Make sure you return an object extending the Policy interface, so
         # that you are able to render the policy and we can evaluate it.
-        pass
+
+        policy_decision = [0 for _ in range(nS)]
+        for state in range(nS):
+            max_value = -np.inf
+            best_choice = None
+            for action in range(nA):
+                value = 0
+                for next_state in range(nS):
+                    next_state_probability = self.env.get_transition(state, action, next_state)
+                    reward = self.env.get_reward(state, action, next_state)
+                    value += (next_state_probability * (reward + gamma * values[next_state]))
+                if value > max_value:
+                    max_value = value
+                    best_choice = action
+            policy_decision[state] = best_choice
+
+        policy = ValuePolicy(values, policy_decision)
+        return policy
+
 
 """
     Q-LEARNING
@@ -189,6 +229,7 @@ class QLTrainer(Trainer):
     SARSA
 """
 
+
 class SARSATrainer(Trainer):
 
     def __init__(self, env, **kwargs):
@@ -256,10 +297,11 @@ class SARSATrainer(Trainer):
         return EpsGreedyPolicy(self.q_table, eps)
     
 
+        step = 0
+        done = False
 
-"""
-    EVERY VISIT MONTE CARLO CONTROL
-"""
+        state, _ = self.env.reset(randomize=explore_starts)
+        action = self._epsilon_greedy_action(state, eps)
 
 class MCTrainer(Trainer):
     def __init__(self, env, **kwargs):
@@ -322,9 +364,19 @@ class MCTrainer(Trainer):
         return EpsGreedyPolicy(self.q_table, eps)
 
 
+                state, _ = self.env.reset(randomize=explore_starts)
+                action = self._epsilon_greedy_action(state, eps)
+                done = False
+
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                episodes += 1
+
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
+        return EpsGreedyPolicy(self.q_table, eps)
 """
     Evaluation
-        
+
     As part of the exercise sheet, you are expected to deliver visualizations
     of the learning curves of each algorithm on each environment.
 
@@ -334,16 +386,17 @@ class MCTrainer(Trainer):
     which is called in the main function.
 """
 
-
-
 """
     We will demonstrate the rendering methods implemented
     in the wrapper using a dummy policy.
 """
+
+
 class RandomPolicy(Policy):
     """
         A dummy policy that returns random actions and random values
     """
+
     def __init__(self, nA):
         self.nA = nA
 
@@ -352,6 +405,9 @@ class RandomPolicy(Policy):
 
     def raw(self, state):
         return np.random.randint(42)
+
+
+
 
 
 if __name__ == "__main__":
@@ -425,6 +481,7 @@ if __name__ == "__main__":
         """
         env.reset(randomize=False)
         mc_trainer = MCTrainer(env)
+
         policy2 = mc_trainer.train(gamma=0.99, steps=10000, eps=0.1, explore_starts=True)
         env.render_policy(policy2, label="monte_carlo")
 
@@ -446,33 +503,45 @@ if __name__ == "__main__":
         sarsa_trainer = SARSATrainer(trainer)
         sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
 
-        # return mc_trainer.average_rewards, ql_trainer.average_rewards, sarsa_trainer.average_rewards
-        return mc_trainer, ql_trainer, sarsa_trainer
-    
+        return mc_trainer.average_rewards, ql_trainer.average_rewards, sarsa_trainer.average_rewards
 
     def experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
-        if not os.path.exists(f"./results/test_new/{trainer.name}"):
-            os.makedirs(f"./results/test_new/{trainer.name}")
+        if not os.path.exists(f"./results/test/{trainer.name}"):
+            os.makedirs(f"./results/test/{trainer.name}")
 
         for i in range(num_experiments):
             mc_rewards, ql_rewards, sarsa_rewards = experiment(trainer, steps, gamma, eps, lr, explore_starts, logger)
-            append_array_to_csv(mc_rewards.average_rewards, f"./results/test_new/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(ql_rewards.average_rewards, f"./results/test_new/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(sarsa_rewards.average_rewards, f"./results/test_new/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(mc_rewards.initial_state_values, f"./results/test_new/{trainer.name}/MC_init_state_{steps // 1000}k.csv")
-            append_array_to_csv(ql_rewards.initial_state_values, f"./results/test_new/{trainer.name}/QL_init_state_{steps // 1000}k.csv")
-            append_array_to_csv(sarsa_rewards.initial_state_values, f"./results/test_new/{trainer.name}/SARSA_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(mc_rewards, f"./results/test/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards, f"./results/test/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards, f"./results/test/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
 
-    LargeLake.name = "LargeLake-v1"
-    experiment_loop(FrozenLake, 52000, 0.99, 0.1, 0.5, False, logger, 5)
-    """trainer = FrozenLake
-    stps = 100000
-    mc_trainer = MCTrainer(trainer)
-    mc_policy = mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, logger=logger, explore_starts=True)
 
-    for i in range(50):
-        append_array_to_csv(mc_trainer.average_rewards,
-                            f"./results/test/FrozenLake/MC_avg_reward_{stps // 1000}k.csv")
-        mc_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
-        mc_trainer.env.reset()
-        mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)"""
+    def initial_value_state_experiment(trainer, steps, gamma, eps, lr, explore_starts, logger):
+        mc_trainer = MCTrainer(trainer)
+        mc_trainer.train(gamma=gamma, steps=steps, eps=eps, logger=logger, explore_starts=explore_starts)
+        ql_trainer = QLTrainer(trainer)
+        ql_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, logger=logger, explore_starts=explore_starts)
+        sarsa_trainer = SARSATrainer(trainer)
+        sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
+        # vit_trainer = VITrainer(trainer)
+        # vit_trainer.train(gamma=gamma, steps=steps)
+
+        return mc_trainer.initial_state_values, ql_trainer.initial_state_values, sarsa_trainer.initial_state_values, 0#vit_trainer.initial_state_values
+
+    def initial_value_state_experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
+        if not os.path.exists(f"./results/test/{trainer.name}"):
+            os.makedirs(f"./results/test/{trainer.name}")
+
+        for i in range(num_experiments):
+            mc_initial_values, ql_initial_values, sarsa_initial_values, vit_initial_values = (
+                initial_value_state_experiment(trainer, steps, gamma, eps, lr, explore_starts, logger))
+            append_array_to_csv(mc_initial_values, f"./results/test/{trainer.name}/MC_initial_values_{steps // 1000}k.csv")
+            append_array_to_csv(ql_initial_values, f"./results/test/{trainer.name}/QL_initial_values_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_initial_values, f"./results/test/{trainer.name}/SARSA_initial_values_{steps // 1000}k.csv")
+            # append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
+
+    LargeLake.name = "Fro"
+    initial_value_state_experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
+    # vit_trainer = VITrainer(LargeLake)
+    # vit_trainer.train(gamma=0.99, steps=500)
+    # append_array_to_csv(vit_trainer.initial_state_values, f"./results/test/{LargeLake.name}/VIT_initial_values_500.csv")
