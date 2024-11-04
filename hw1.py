@@ -1,4 +1,5 @@
 import csv
+import os
 from time import perf_counter
 from infrastructure.envs.tabular_wrapper import EnvWrapper
 from infrastructure.utils.logger import Logger
@@ -126,7 +127,7 @@ class QLTrainer(Trainer):
         super(QLTrainer, self).__init__(env)
         self.q_table = np.zeros((env.num_states(), env.num_actions()))
         self.average_rewards = 0
-        self.initial_state_values = np.array([])
+        self.initial_state_values = []
     
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -168,11 +169,12 @@ class QLTrainer(Trainer):
             step += 1
 
             if done:
-                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
-                # https://groww.in/p/exponential-moving-average
-                discounted_return = total_reward * gamma
-                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                # # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
+                # # https://groww.in/p/exponential-moving-average
+                # discounted_return = total_reward * gamma
+                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                self.initial_state_values.append(max(self.q_table[0]))
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 done = False
@@ -193,7 +195,7 @@ class SARSATrainer(Trainer):
         super(SARSATrainer, self).__init__(env)
         self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
         self.average_rewards = 0
-        self.initial_state_values = np.array([])
+        self.initial_state_values = []
     
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -235,9 +237,12 @@ class SARSATrainer(Trainer):
             step += 1
             
             if done:
-                discounted_return = total_reward * gamma
-                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                # discounted_return = total_reward * gamma
+                # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                x = max(self.q_table[0])
+                self.initial_state_values.append(max(self.q_table[0]))
+
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 action = self._epsilon_greedy_action(state, eps)
@@ -259,11 +264,63 @@ class SARSATrainer(Trainer):
 class MCTrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(MCTrainer, self).__init__(env)
+        self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.visit_counts = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
+
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions())  # Exploration
+        return np.argmax(self.q_table[state])  # Exploitation
 
     def train(self, gamma, steps, eps, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
-        # TODO - Complete every visit MC-control, which uses an epsilon greedy
-        # exploration policy
-        pass
+        step = 0
+        episode_num = 0
+
+        state, info = self.env.reset(randomize=explore_starts)
+        episode = []
+
+        total_reward = 0
+        rewards_per_episode = []
+
+        while step < steps:
+            # if step % 10000 == 0:
+            #     print(f"Step: {step}")
+            action = self._epsilon_greedy_action(state, eps)
+            succ, rew, terminated, truncated, _ = self.env.step(action)
+            done = terminated or truncated
+
+            episode.append((state, action, rew))
+            total_reward += rew
+            state = succ
+            step += 1
+
+            # if logger is not None:
+            #     logger.write({"rew": rew, "termination": terminated}, step)
+
+            if done:
+                # Calculate returns and update Q-values for every visit
+                G = 0
+                for t in reversed(range(len(episode))):
+                    state, action, reward = episode[t]
+                    G = reward + gamma * G  # Calculate return from this step onwards
+
+                    # Every-Visit MC updates (average the returns)
+                    self.visit_counts[state, action] += 1
+                    self.q_table[state, action] += (G - self.q_table[state, action]) / self.visit_counts[state, action]
+
+                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
+
+                episode = []
+                episode_num += 1
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                state, info = self.env.reset(randomize=explore_starts)
+
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episode_num) + 1)
+        return EpsGreedyPolicy(self.q_table, eps)
+
 
 """
     Evaluation
@@ -323,9 +380,7 @@ if __name__ == "__main__":
         setting `max_samples=n` in the Wrapper constructor; see below:
 
     """
-    LimitedEnv = EnvWrapper(gym.make('CliffWalking-v0'), max_samples = 10)
-
-
+    LimitedEnv = EnvWrapper(gym.make('CliffWalking-v0'), max_samples=10)
 
     """
         Logging example - walk through the CliffWalking environment
@@ -335,65 +390,45 @@ if __name__ == "__main__":
     """
     log_dir = "results/test/"
     logger = Logger(log_dir)
-    start = perf_counter()
-
-    trainer = CliffWalking
-    stps = 10000
-
-    ql_trainer = QLTrainer(trainer)
-    ql_policy = ql_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
-    print(perf_counter() - start)
+    # VITrainer(CliffWalking).train(gamma=1.0, steps=42)
+    # df = pd.read_csv(log_dir + "logs.csv", sep=";")
+    # print(df.head(10))
+    # QLTrainer(CliffWalking).train(gamma=1.0, steps=42, eps=0.42, lr=0.42, logger=logger)
     # df = pd.read_csv(log_dir + "logs.csv", sep=";")
     # print(df.head(10))
 
+    """ 
+        You can also use the `render_mode="human"` argument for Gymnasium to
+        see an animation of your agent's decisions.
+    """
+    #AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', map_name='4x4'
+    #                                  , render_mode='human'),
+    #                         max_samples=-1)
+    # AnimatedEnv.reset()
+    # Walk around randomly for a bit
+    moves = [0, 1, 2, 3]
+    # for i in moves:
+    #    obs, rew, done, trunc, _ = AnimatedEnv.step(i)
+    #    print(rew)
+    #    if done:
+    #        AnimatedEnv.reset()
+
+    """
+        Rendering example - using env.render_policy() to get a value heatmap as
+        well as the greedy actions w.r.t. the policy values.
+    """
 
 
-    # """ 
-    #     You can also use the `render_mode="human"` argument for Gymnasium to
-    #     see an animation of your agent's decisions.
-    # """
-    # AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', 
-    #                                   map_name='4x4', 
-    #                                   render_mode='human'),
-    #                          max_samples = -1)
-    # # # Walk according to learned policy
-    # done = False
-    # obs, _ = AnimatedEnv.reset()
-    # while not done:
-    #     action = np.argmax(ql_trainer.q_table[obs])
-    #     obs, rew, done, trunc, _ = AnimatedEnv.step(action)
-    #     if done:
-    #         AnimatedEnv.reset()
+    def render_random(env):
+        """
+            Plots heatmap of the state values and arrows corresponding to actions on `env`
+        """
+        env.reset(randomize=False)
+        mc_trainer = MCTrainer(env)
+        policy2 = mc_trainer.train(gamma=0.99, steps=10000, eps=0.1, explore_starts=True)
+        env.render_policy(policy2, label="monte_carlo")
 
-    # # AnimatedEnv.reset()
-    # # # Walk around randomly for a bit
-    # # for i in range(10):
-    # #     action = 0
-    # #     obs, rew, done, trunc, _ = AnimatedEnv.step(action)
-    # #     if done:
-    # #         AnimatedEnv.reset()
-
-
-
-    # """
-    #     Rendering example - using env.render_policy() to get a value heatmap as
-    #     well as the greedy actions w.r.t. the policy values.
-    # """
-    # def render_random(env):
-    #     """
-    #         Plots heatmap of the state values and arrows corresponding to actions on `env`
-    #     """
-    #     env.reset(randomize=False)
-    #     policy = RandomPolicy(env.num_actions())
-    #     env.render_policy(policy, label= "RandomPolicy")
-
-    # def render_given(env, policy, randomize):
-    #     env.reset(randomize=randomize)
-    #     env.render_policy(policy, label= "SARSA")
-
-    # # render_random(FrozenLake)
-    # render_given(FrozenLake, ql_policy, False)
-
+    # render_random(FrozenLake)
 
     def append_array_to_csv(array, filename, delimiter=";"):
         # Open the file in append mode
@@ -401,9 +436,43 @@ if __name__ == "__main__":
             writer = csv.writer(file, delimiter=delimiter)
             # Write the array as a row in the CSV file
             writer.writerow(array)
+
+
+    def experiment(trainer, steps, gamma, eps, lr, explore_starts, logger):
+        mc_trainer = MCTrainer(trainer)
+        mc_trainer.train(gamma=gamma, steps=steps, eps=eps, logger=logger, explore_starts=explore_starts)
+        ql_trainer = QLTrainer(trainer)
+        ql_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, logger=logger, explore_starts=explore_starts)
+        sarsa_trainer = SARSATrainer(trainer)
+        sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
+
+        # return mc_trainer.average_rewards, ql_trainer.average_rewards, sarsa_trainer.average_rewards
+        return mc_trainer, ql_trainer, sarsa_trainer
     
+
+    def experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
+        if not os.path.exists(f"./results/test/{trainer.name}"):
+            os.makedirs(f"./results/test/{trainer.name}")
+
+        for i in range(num_experiments):
+            mc_rewards, ql_rewards, sarsa_rewards = experiment(trainer, steps, gamma, eps, lr, explore_starts, logger)
+            append_array_to_csv(mc_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(mc_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/MC_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/QL_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/SARSA_init_state_{steps // 1000}k.csv")
+
+    LargeLake.name = "LargeLake-v1"
+    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 15)
+    """trainer = FrozenLake
+    stps = 100000
+    mc_trainer = MCTrainer(trainer)
+    mc_policy = mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, logger=logger, explore_starts=True)
+
     for i in range(50):
-        append_array_to_csv(ql_trainer.average_rewards, f".\\results\\test\\CliffWalking\\QL_avg_reward_{stps//1000}k.csv")
-        ql_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
-        ql_trainer.env.reset()
-        ql_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
+        append_array_to_csv(mc_trainer.average_rewards,
+                            f"./results/test/FrozenLake/MC_avg_reward_{stps // 1000}k.csv")
+        mc_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
+        mc_trainer.env.reset()
+        mc_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)"""
