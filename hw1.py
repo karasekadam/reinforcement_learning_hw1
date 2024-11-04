@@ -1,3 +1,5 @@
+import csv
+from time import perf_counter
 from infrastructure.envs.tabular_wrapper import EnvWrapper
 from infrastructure.utils.logger import Logger
 
@@ -123,6 +125,8 @@ class QLTrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(QLTrainer, self).__init__(env)
         self.q_table = np.zeros((env.num_states(), env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
     
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -139,11 +143,16 @@ class QLTrainer(Trainer):
         state, _ = self.env.reset(randomize=explore_starts)
         done = False 
 
+        episodes = 0
+        total_reward = 0
+        v_pi_t_s0 = 0
+        rewards_per_episode = []
 
         while step < steps:
             # TODO: action selection
             action = self._epsilon_greedy_action(state, eps)
             succ, rew, terminated, truncated, _ = self.env.step(action)
+            total_reward += rew
             done = terminated or truncated
 
 
@@ -159,9 +168,20 @@ class QLTrainer(Trainer):
             step += 1
 
             if done:
+                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
+                # https://groww.in/p/exponential-moving-average
+                discounted_return = total_reward * gamma
+                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+
                 state, _ = self.env.reset(randomize=explore_starts)
                 done = False
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                episodes += 1
 
+        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
+        # self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
         return GreedyPolicy(self.q_table)
 
 """
@@ -212,6 +232,8 @@ class SARSATrainer(Trainer):
                 action = self._epsilon_greedy_action(state, eps)
                 done = False
 
+        self.env.episode_rewards
+        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
     
 
@@ -299,8 +321,10 @@ if __name__ == "__main__":
     """
     log_dir = "results/test/"
     logger = Logger(log_dir)
-    ql_trainer = SARSATrainer(FrozenLake)
+    start = perf_counter()
+    ql_trainer = QLTrainer(FrozenLake)
     ql_policy = ql_trainer.train(gamma=0.99, steps=100000, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
+    print(perf_counter() - start)
     # df = pd.read_csv(log_dir + "logs.csv", sep=";")
     # print(df.head(10))
 
@@ -345,8 +369,22 @@ if __name__ == "__main__":
         policy = RandomPolicy(env.num_actions())
         env.render_policy(policy, label= "RandomPolicy")
 
-    def render_given(env, policy):
-        env.render_policy(policy, label= "Q-Learning")
+    def render_given(env, policy, randomize):
+        env.reset(randomize=randomize)
+        env.render_policy(policy, label= "SARSA")
 
     # render_random(FrozenLake)
-    render_given(FrozenLake, ql_policy)
+    render_given(FrozenLake, ql_policy, False)
+
+
+    # def append_array_to_csv(array, filename, delimiter=";"):
+    #     # Open the file in append mode
+    #     with open(filename, mode="a", newline="") as file:
+    #         writer = csv.writer(file, delimiter=delimiter)
+    #         # Write the array as a row in the CSV file
+    #         writer.writerow(array)
+    
+    # for i in range(50):
+    #     append_array_to_csv(ql_trainer.average_rewards, r".\results\test\QL_avg_reward_100k.csv")
+    #     ql_trainer.q_table = np.zeros((FrozenLake.num_states(), FrozenLake.num_actions()))
+    #     ql_trainer.train(gamma=0.99, steps=100000, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
