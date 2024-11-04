@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
@@ -20,20 +21,30 @@ trainer = "FrozenLake"
 
 # Read the CSV file line by line
 with open(f".\\results\\test\\{trainer}\\QL_avg_reward_{steps//1000}k.csv", 'r') as file:
+    minimal = math.inf
     for line in file:
         # Split line into values and convert to float
         values = [float(x) for x in line.strip().split(';') if x]
+        minimal = len(values) if len(values) < minimal else minimal
         # Append each value to the corresponding epoch in data_by_epoch
         for i, value in enumerate(values):
             data_by_epoch_QL[i].append(value)
+    print(minimal)
+    data_by_epoch_QL = {key: values for key, values in data_by_epoch_QL.items() if key < minimal}
+
 
 with open(f".\\results\\test\\{trainer}\\SARSA_avg_reward_{steps//1000}k.csv", 'r') as file:
+    minimal = math.inf
     for line in file:
         # Split line into values and convert to float
         values = [float(x) for x in line.strip().split(';') if x]
+        minimal = len(values) if len(values) < minimal else minimal
         # Append each value to the corresponding epoch in data_by_epoch
         for i, value in enumerate(values):
             data_by_epoch_SARSA[i].append(value)
+    print(minimal)
+    data_by_epoch_SARSA = {key: values for key, values in data_by_epoch_SARSA.items() if key < minimal}
+
 
 
 # Step 2: Calculate median, Q1, and Q3 for each index
