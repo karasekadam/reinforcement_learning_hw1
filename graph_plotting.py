@@ -15,7 +15,7 @@ Data must by in the following format:
 data_by_epoch_QL = defaultdict(list)
 data_by_epoch_SARSA = defaultdict(list)
 
-steps = 100000
+steps = 250000
 trainer = "FrozenLake"
 
 # Read the CSV file line by line
@@ -77,8 +77,8 @@ medians_SARSA = np.array(medians_SARSA)
 SARSA_std = np.array(std_SARSA)
 
 # Shaded area for IQR (Q1 to Q3) or STD
-plt.fill_between(epochs, (medians - std), (medians + std), color="orange", alpha=0.4, label="Std Dev")
-plt.fill_between(epochs_SARSA, medians_SARSA - SARSA_std, medians_SARSA + SARSA_std, color="lightblue", alpha=0.4, label="Std Dev")
+plt.fill_between(epochs, (medians - std), (medians + std), color="orange", alpha=0.4, label="QL - Std Dev")
+plt.fill_between(epochs_SARSA, medians_SARSA - SARSA_std, medians_SARSA + SARSA_std, color="lightblue", alpha=0.4, label="SARSA - Std Dev")
 
 # plt.fill_between(epochs, q1_values, q3_values, color="orange", alpha=0.4, label="QL - IQR (Q1 - Q3)")
 # plt.fill_between(epochs_SARSA, q1_values_SARSA, q3_values_SARSA, color="lightblue", alpha=0.4, label="SARSA - IQR (Q1 - Q3)")
