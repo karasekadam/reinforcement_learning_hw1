@@ -167,7 +167,7 @@ class QLTrainer(Trainer):
         super(QLTrainer, self).__init__(env)
         self.q_table = np.zeros((env.num_states(), env.num_actions()))
         self.average_rewards = 0
-        self.initial_state_values = np.array([])
+        self.initial_state_values = []
 
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -208,11 +208,12 @@ class QLTrainer(Trainer):
             step += 1
 
             if done:
-                # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
-                # https://groww.in/p/exponential-moving-average
+                # # v^{pi_t}(s_0) with Exponential Moving Average (EMA)
+                # # https://groww.in/p/exponential-moving-average
                 # discounted_return = total_reward * gamma
                 # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
+                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                self.initial_state_values.append(max(self.q_table[0]))
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 done = False
@@ -235,7 +236,7 @@ class SARSATrainer(Trainer):
         super(SARSATrainer, self).__init__(env)
         self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
         self.average_rewards = 0
-        self.initial_state_values = np.array([])
+        self.initial_state_values = []
 
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -279,7 +280,9 @@ class SARSATrainer(Trainer):
             if done:
                 # discounted_return = total_reward * gamma
                 # v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
-                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
+                # self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+                x = max(self.q_table[0])
+                self.initial_state_values.append(max(self.q_table[0]))
 
                 state, _ = self.env.reset(randomize=explore_starts)
                 action = self._epsilon_greedy_action(state, eps)
@@ -291,73 +294,6 @@ class SARSATrainer(Trainer):
 
         self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
-
-
-"""
-    EVERY VISIT MONTE CARLO CONTROL
-"""
-
-
-class MCTrainer(Trainer):
-    def __init__(self, env, **kwargs):
-        super(MCTrainer, self).__init__(env)
-        self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
-        self.visit_counts = np.zeros((self.env.num_states(), self.env.num_actions()))
-        self.average_rewards = 0
-        self.initial_state_values = np.array([])
-
-    def _epsilon_greedy_action(self, state, eps):
-        if np.random.rand() < eps:
-            return np.random.choice(self.env.num_actions())  # Exploration
-        # if np.max(self.q_table[state]) == 0:
-        #     return np.random.choice(self.env.num_actions())
-        return np.argmax(self.q_table[state])  # Exploitation
-
-    def train(self, gamma, steps, eps, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
-        step = 0
-        episode_num = 0
-
-        state, info = self.env.reset(randomize=explore_starts)
-        episode = []
-
-        total_reward = 0
-        rewards_per_episode = []
-
-        while step < steps:
-            action = self._epsilon_greedy_action(state, eps)
-            succ, rew, terminated, truncated, _ = self.env.step(action)
-            done = terminated or truncated
-
-            episode.append((state, action, rew))
-            total_reward += rew
-            state = succ
-            step += 1
-
-            # if logger is not None:
-            #     logger.write({"rew": rew, "termination": terminated}, step)
-
-            if done:
-                # Calculate returns and update Q-values for every visit
-                G = 0
-                for t in reversed(range(len(episode))):
-                    state, action, reward = episode[t]
-                    G = reward + gamma * G  # Calculate return from this step onwards
-
-                    # Every-Visit MC updates (average the returns)
-                    self.visit_counts[state, action] += 1
-                    self.q_table[state, action] += (G - self.q_table[state, action]) / self.visit_counts[state, action]
-
-                self.initial_state_values = np.append(self.initial_state_values, self.q_table[0].max())
-
-                episode = []
-                episode_num += 1
-                rewards_per_episode.append(total_reward)
-                total_reward = 0
-                state, info = self.env.reset(randomize=explore_starts)
-
-        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episode_num) + 1)
-        return EpsGreedyPolicy(self.q_table, eps)
-
 """
     Evaluation
 
