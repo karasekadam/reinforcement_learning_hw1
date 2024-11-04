@@ -322,8 +322,6 @@ class MCTrainer(Trainer):
         rewards_per_episode = []
 
         while step < steps:
-            if step % 10000 == 0:
-                print(f"Step: {step}")
             action = self._epsilon_greedy_action(state, eps)
             succ, rew, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
@@ -499,7 +497,32 @@ if __name__ == "__main__":
             append_array_to_csv(sarsa_rewards, f"./results/test/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
 
 
-    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, True, logger, 5)
+    def initial_value_state_experiment(trainer, steps, gamma, eps, lr, explore_starts, logger):
+        mc_trainer = MCTrainer(trainer)
+        mc_trainer.train(gamma=gamma, steps=steps, eps=eps, logger=logger, explore_starts=explore_starts)
+        ql_trainer = QLTrainer(trainer)
+        ql_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, logger=logger, explore_starts=explore_starts)
+        sarsa_trainer = SARSATrainer(trainer)
+        sarsa_trainer.train(gamma=gamma, steps=steps, eps=eps, lr=lr, explore_starts=explore_starts)
+        vit_trainer = VITrainer(trainer)
+        vit_trainer.train(gamma=gamma, steps=steps)
+
+        return mc_trainer.initial_state_values, ql_trainer.initial_state_values, sarsa_trainer.initial_state_values, vit_trainer.initial_state_values
+
+    def initial_value_state_experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
+        if not os.path.exists(f"./results/test/{trainer.name}"):
+            os.makedirs(f"./results/test/{trainer.name}")
+
+        for i in range(num_experiments):
+            mc_initial_values, ql_initial_values, sarsa_initial_values, vit_initial_values = (
+                initial_value_state_experiment(trainer, steps, gamma, eps, lr, explore_starts, logger))
+            append_array_to_csv(mc_initial_values, f"./results/test/{trainer.name}/MC_initial_values_{steps // 1000}k.csv")
+            append_array_to_csv(ql_initial_values, f"./results/test/{trainer.name}/QL_initial_values_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_initial_values, f"./results/test/{trainer.name}/SARSA_initial_values_{steps // 1000}k.csv")
+            append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
+
+
+    initial_value_state_experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, True, logger, 5)
     """trainer = FrozenLake
     stps = 100000
     mc_trainer = MCTrainer(trainer)
