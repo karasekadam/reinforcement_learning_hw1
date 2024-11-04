@@ -451,20 +451,20 @@ if __name__ == "__main__":
     
 
     def experiment_loop(trainer, steps, gamma, eps, lr, explore_starts, logger, num_experiments):
-        if not os.path.exists(f"./results/test/{trainer.name}"):
-            os.makedirs(f"./results/test/{trainer.name}")
+        if not os.path.exists(f"./results/test_new/{trainer.name}"):
+            os.makedirs(f"./results/test_new/{trainer.name}")
 
         for i in range(num_experiments):
             mc_rewards, ql_rewards, sarsa_rewards = experiment(trainer, steps, gamma, eps, lr, explore_starts, logger)
-            append_array_to_csv(mc_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(ql_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(sarsa_rewards.average_rewards, f"./results/test_TRUE/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
-            append_array_to_csv(mc_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/MC_init_state_{steps // 1000}k.csv")
-            append_array_to_csv(ql_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/QL_init_state_{steps // 1000}k.csv")
-            append_array_to_csv(sarsa_rewards.initial_state_values, f"./results/test_TRUE/{trainer.name}/SARSA_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(mc_rewards.average_rewards, f"./results/test_new/{trainer.name}/MC_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards.average_rewards, f"./results/test_new/{trainer.name}/QL_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards.average_rewards, f"./results/test_new/{trainer.name}/SARSA_avg_reward_{steps // 1000}k.csv")
+            append_array_to_csv(mc_rewards.initial_state_values, f"./results/test_new/{trainer.name}/MC_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(ql_rewards.initial_state_values, f"./results/test_new/{trainer.name}/QL_init_state_{steps // 1000}k.csv")
+            append_array_to_csv(sarsa_rewards.initial_state_values, f"./results/test_new/{trainer.name}/SARSA_init_state_{steps // 1000}k.csv")
 
     LargeLake.name = "LargeLake-v1"
-    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 15)
+    experiment_loop(FrozenLake, 52000, 0.99, 0.1, 0.5, False, logger, 5)
     """trainer = FrozenLake
     stps = 100000
     mc_trainer = MCTrainer(trainer)
