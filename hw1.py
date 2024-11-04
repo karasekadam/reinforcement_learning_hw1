@@ -1,13 +1,9 @@
-import csv
-import os
-from time import perf_counter
 from infrastructure.envs.tabular_wrapper import EnvWrapper
 from infrastructure.utils.logger import Logger
 
 from datetime import datetime
 import gymnasium as gym
 import numpy as np
-import pandas as pd
 import csv
 import os
 
@@ -295,13 +291,6 @@ class SARSATrainer(Trainer):
 
         self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
-    
-
-        step = 0
-        done = False
-
-        state, _ = self.env.reset(randomize=explore_starts)
-        action = self._epsilon_greedy_action(state, eps)
 
 
 class MCTrainer(Trainer):
@@ -523,7 +512,7 @@ if __name__ == "__main__":
         if not os.path.exists(f"./results/test/{trainer.name}"):
             os.makedirs(f"./results/test/{trainer.name}")
 
-        for i in range(num_experiments):
+        for _ in range(num_experiments):
             mc_initial_values, ql_initial_values, sarsa_initial_values, vit_initial_values = (
                 initial_value_state_experiment(trainer, steps, gamma, eps, lr, explore_starts, logger))
             append_array_to_csv(mc_initial_values, f"./results/test/{trainer.name}/MC_initial_values_{steps // 1000}k.csv")
@@ -531,8 +520,8 @@ if __name__ == "__main__":
             append_array_to_csv(sarsa_initial_values, f"./results/test/{trainer.name}/SARSA_initial_values_{steps // 1000}k.csv")
             # append_array_to_csv(vit_initial_values, f"./results/test/{trainer.name}/VIT_initial_values_{steps // 1000}k.csv")
 
-    LargeLake.name = "Large Lake"
-    experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
+    # LargeLake.name = "Large Lake"
+    # experiment_loop(FrozenLake, 100000, 0.99, 0.1, 0.1, False, logger, 20)
     # vit_trainer = VITrainer(LargeLake)
     # vit_trainer.train(gamma=0.99, steps=500)
     # append_array_to_csv(vit_trainer.initial_state_values, f"./results/test/{LargeLake.name}/VIT_initial_values_500.csv")
