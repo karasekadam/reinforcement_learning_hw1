@@ -180,8 +180,7 @@ class QLTrainer(Trainer):
                 total_reward = 0
                 episodes += 1
 
-        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
-        # self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
         return GreedyPolicy(self.q_table)
 
 """
@@ -193,6 +192,8 @@ class SARSATrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(SARSATrainer, self).__init__(env)
         self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.average_rewards = 0
+        self.initial_state_values = np.array([])
     
     def _epsilon_greedy_action(self, state, eps):
         if np.random.rand() < eps:
@@ -210,8 +211,14 @@ class SARSATrainer(Trainer):
         state, _ = self.env.reset(randomize=explore_starts)
         action = self._epsilon_greedy_action(state, eps)
 
+        episodes = 0
+        total_reward = 0
+        v_pi_t_s0 = 0
+        rewards_per_episode = []
+
         while step < steps:
             succ, rew, terminated, truncated, _ = self.env.step(action)
+            total_reward += rew
             done = terminated or truncated
 
             next_action = self._epsilon_greedy_action(succ, eps) if not done else None
@@ -228,12 +235,19 @@ class SARSATrainer(Trainer):
             step += 1
             
             if done:
+                discounted_return = total_reward * gamma
+                v_pi_t_s0 = (1 - lr) * v_pi_t_s0 + lr * discounted_return
+                self.initial_state_values = np.append(self.initial_state_values, v_pi_t_s0)
+
                 state, _ = self.env.reset(randomize=explore_starts)
                 action = self._epsilon_greedy_action(state, eps)
                 done = False
 
-        self.env.episode_rewards
-        self.average_rewards = np.cumsum(self.env.episode_rewards) / (np.arange(len(self.env.episode_rewards)) + 1)
+                rewards_per_episode.append(total_reward)
+                total_reward = 0
+                episodes += 1
+
+        self.average_rewards = np.cumsum(rewards_per_episode) / (np.arange(episodes) + 1)
         return EpsGreedyPolicy(self.q_table, eps)
     
 
@@ -322,69 +336,74 @@ if __name__ == "__main__":
     log_dir = "results/test/"
     logger = Logger(log_dir)
     start = perf_counter()
-    ql_trainer = QLTrainer(FrozenLake)
-    ql_policy = ql_trainer.train(gamma=0.99, steps=100000, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
+
+    trainer = CliffWalking
+    stps = 10000
+
+    ql_trainer = QLTrainer(trainer)
+    ql_policy = ql_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
     print(perf_counter() - start)
     # df = pd.read_csv(log_dir + "logs.csv", sep=";")
     # print(df.head(10))
 
 
 
-    """ 
-        You can also use the `render_mode="human"` argument for Gymnasium to
-        see an animation of your agent's decisions.
-    """
-    AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', 
-                                      map_name='4x4', 
-                                      render_mode='human'),
-                             max_samples = -1)
-    # # Walk according to learned policy
-    done = False
-    obs, _ = AnimatedEnv.reset()
-    while not done:
-        action = np.argmax(ql_trainer.q_table[obs])
-        obs, rew, done, trunc, _ = AnimatedEnv.step(action)
-        if done:
-            AnimatedEnv.reset()
-
-    # AnimatedEnv.reset()
-    # # Walk around randomly for a bit
-    # for i in range(10):
-    #     action = 0
+    # """ 
+    #     You can also use the `render_mode="human"` argument for Gymnasium to
+    #     see an animation of your agent's decisions.
+    # """
+    # AnimatedEnv = EnvWrapper(gym.make('FrozenLake-v1', 
+    #                                   map_name='4x4', 
+    #                                   render_mode='human'),
+    #                          max_samples = -1)
+    # # # Walk according to learned policy
+    # done = False
+    # obs, _ = AnimatedEnv.reset()
+    # while not done:
+    #     action = np.argmax(ql_trainer.q_table[obs])
     #     obs, rew, done, trunc, _ = AnimatedEnv.step(action)
     #     if done:
     #         AnimatedEnv.reset()
 
+    # # AnimatedEnv.reset()
+    # # # Walk around randomly for a bit
+    # # for i in range(10):
+    # #     action = 0
+    # #     obs, rew, done, trunc, _ = AnimatedEnv.step(action)
+    # #     if done:
+    # #         AnimatedEnv.reset()
 
 
-    """
-        Rendering example - using env.render_policy() to get a value heatmap as
-        well as the greedy actions w.r.t. the policy values.
-    """
-    def render_random(env):
-        """
-            Plots heatmap of the state values and arrows corresponding to actions on `env`
-        """
-        env.reset(randomize=False)
-        policy = RandomPolicy(env.num_actions())
-        env.render_policy(policy, label= "RandomPolicy")
 
-    def render_given(env, policy, randomize):
-        env.reset(randomize=randomize)
-        env.render_policy(policy, label= "SARSA")
+    # """
+    #     Rendering example - using env.render_policy() to get a value heatmap as
+    #     well as the greedy actions w.r.t. the policy values.
+    # """
+    # def render_random(env):
+    #     """
+    #         Plots heatmap of the state values and arrows corresponding to actions on `env`
+    #     """
+    #     env.reset(randomize=False)
+    #     policy = RandomPolicy(env.num_actions())
+    #     env.render_policy(policy, label= "RandomPolicy")
 
-    # render_random(FrozenLake)
-    render_given(FrozenLake, ql_policy, False)
+    # def render_given(env, policy, randomize):
+    #     env.reset(randomize=randomize)
+    #     env.render_policy(policy, label= "SARSA")
+
+    # # render_random(FrozenLake)
+    # render_given(FrozenLake, ql_policy, False)
 
 
-    # def append_array_to_csv(array, filename, delimiter=";"):
-    #     # Open the file in append mode
-    #     with open(filename, mode="a", newline="") as file:
-    #         writer = csv.writer(file, delimiter=delimiter)
-    #         # Write the array as a row in the CSV file
-    #         writer.writerow(array)
+    def append_array_to_csv(array, filename, delimiter=";"):
+        # Open the file in append mode
+        with open(filename, mode="a", newline="") as file:
+            writer = csv.writer(file, delimiter=delimiter)
+            # Write the array as a row in the CSV file
+            writer.writerow(array)
     
-    # for i in range(50):
-    #     append_array_to_csv(ql_trainer.average_rewards, r".\results\test\QL_avg_reward_100k.csv")
-    #     ql_trainer.q_table = np.zeros((FrozenLake.num_states(), FrozenLake.num_actions()))
-    #     ql_trainer.train(gamma=0.99, steps=100000, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
+    for i in range(50):
+        append_array_to_csv(ql_trainer.average_rewards, f".\\results\\test\\CliffWalking\\QL_avg_reward_{stps//1000}k.csv")
+        ql_trainer.q_table = np.zeros((trainer.num_states(), trainer.num_actions()))
+        ql_trainer.env.reset()
+        ql_trainer.train(gamma=0.99, steps=stps, eps=0.1, lr=0.1, logger=logger, explore_starts=True)
