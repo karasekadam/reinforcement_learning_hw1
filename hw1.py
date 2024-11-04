@@ -1,3 +1,5 @@
+from more_itertools.more import sample
+
 from infrastructure.envs.tabular_wrapper import EnvWrapper
 from infrastructure.utils.logger import Logger
 
@@ -214,12 +216,52 @@ class SARSATrainer(Trainer):
 class MCTrainer(Trainer):
     def __init__(self, env, **kwargs):
         super(MCTrainer, self).__init__(env)
+        self.q_table = np.zeros((self.env.num_states(), self.env.num_actions()))
+        self.visit_counts = np.zeros((self.env.num_states(), self.env.num_actions()))
+
+    def _epsilon_greedy_action(self, state, eps):
+        if np.random.rand() < eps:
+            return np.random.choice(self.env.num_actions())  # Exploration
+        return np.argmax(self.q_table[state])  # Exploitation
 
     def train(self, gamma, steps, eps, explore_starts=False, **kwargs) -> EpsGreedyPolicy:
-        # TODO - Complete every visit MC-control, which uses an epsilon greedy
-        # exploration policy
-        pass
+        step = 0
+        episode_num = 0
 
+        state, info = self.env.reset(randomize=explore_starts)
+        done = False
+
+        episode = []
+
+        while step < steps:
+            action = self._epsilon_greedy_action(state, eps)
+            succ, rew, terminated, truncated, _ = self.env.step(action)
+            done = terminated or truncated
+
+            episode.append((state, action, rew))
+            state = succ
+            step += 1
+
+            if logger is not None:
+                logger.write({"rew": rew, "termination": terminated}, step)
+
+            if done:
+                # Calculate returns and update Q-values for every visit
+                G = 0
+                for t in reversed(range(len(episode))):
+                    state, action, reward = episode[t]
+                    G = reward + gamma * G  # Calculate return from this step onwards
+
+                    # Every-Visit MC updates (average the returns)
+                    self.visit_counts[state, action] += 1
+                    self.q_table[state, action] += (G - self.q_table[state, action]) / self.visit_counts[state, action]
+
+                episode = []
+                episode_num += 1
+                state, info = self.env.reset(randomize=explore_starts)
+
+
+        return EpsGreedyPolicy(self.q_table, eps)
 
 """
     Evaluation
@@ -252,6 +294,9 @@ class RandomPolicy(Policy):
 
     def raw(self, state):
         return np.random.randint(42)
+
+
+
 
 
 if __name__ == "__main__":
@@ -290,12 +335,12 @@ if __name__ == "__main__":
     """
     log_dir = "results/test/"
     logger = Logger(log_dir)
-    VITrainer(CliffWalking).train(gamma=1.0, steps=42)
+    # VITrainer(CliffWalking).train(gamma=1.0, steps=42)
     # df = pd.read_csv(log_dir + "logs.csv", sep=";")
     # print(df.head(10))
-    QLTrainer(CliffWalking).train(gamma=1.0, steps=42, eps=0.42, lr=0.42, logger=logger)
-    df = pd.read_csv(log_dir + "logs.csv", sep=";")
-    print(df.head(10))
+    # QLTrainer(CliffWalking).train(gamma=1.0, steps=42, eps=0.42, lr=0.42, logger=logger)
+    # df = pd.read_csv(log_dir + "logs.csv", sep=";")
+    # print(df.head(10))
 
     """ 
         You can also use the `render_mode="human"` argument for Gymnasium to
@@ -306,10 +351,12 @@ if __name__ == "__main__":
                              max_samples=-1)
     AnimatedEnv.reset()
     # Walk around randomly for a bit
-    for i in range(10):
-        obs, rew, done, trunc, _ = AnimatedEnv.step(np.random.randint(4))
-        if done:
-            AnimatedEnv.reset()
+    moves = [0, 1, 2, 3]
+    # for i in moves:
+    #    obs, rew, done, trunc, _ = AnimatedEnv.step(i)
+    #    print(rew)
+    #    if done:
+    #        AnimatedEnv.reset()
 
     """
         Rendering example - using env.render_policy() to get a value heatmap as
@@ -322,8 +369,13 @@ if __name__ == "__main__":
             Plots heatmap of the state values and arrows corresponding to actions on `env`
         """
         env.reset(randomize=False)
-        policy = RandomPolicy(env.num_actions())
-        env.render_policy(policy, label="RandomPolicy")
+        mc_trainer = MCTrainer(env)
+        # vit_trainer = VITrainer(env)
+        # policy1 = vit_trainer.train(gamma=0.99, steps=10000)
+        # env.render_policy(policy1, label="vit")
 
+        policy2 = mc_trainer.train(gamma=0.99, steps=1000, eps=0.2, explore_starts=True)
+        env.render_policy(policy2, label="monte_carlo")
+        pass
 
     render_random(FrozenLake)
